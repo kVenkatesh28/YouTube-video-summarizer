@@ -1,40 +1,83 @@
-# YouTube-video-summarizer
-Description:
+import tkinter as tk
+from tkinter import scrolledtext
+from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api._errors import NoTranscriptFound
+from transformers import pipeline
+import re
 
-This project is a Python desktop application that takes a YouTube video link, fetches the transcript (if available), and generates a short summary of the content. It is useful for quickly understanding long videos without going through the entire transcript.
+# Function to get the video ID from URL
+def get_video_id(url):
+    pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11}).*'
+    match = re.search(pattern, url)
+    if match:
+        return match.group(1)
+    else:
+        return None
 
-Features
+# Function to get the summary
+def get_summary():
+    url = url_entry.get()
+    video_id = get_video_id(url)
 
-Fetches video transcripts using the youtube-transcript-api.
-Summarizes the transcript using a pre-trained model.
-Handles long transcripts by breaking them into chunks.
-Simple Tkinter-based interface to enter the link and view results.
+    if video_id is None:
+        result_text.config(state=tk.NORMAL)
+        result_text.delete(1.0, tk.END)
+        result_text.insert(tk.INSERT, "Invalid YouTube URL.")
+        result_text.config(state=tk.DISABLED)
+        return
 
-Requirements:
-Python 3
-tkinter
-youtube-transcript-api
-transformers
-torch
+    try:
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        full_text = " ".join([entry['text'] for entry in transcript])
 
-You can install the required packages with:
+        # Chunking the transcript if it's too long
+        max_chunk_size = 1024
+        chunks = [full_text[i:i+max_chunk_size] for i in range(0, len(full_text), max_chunk_size)]
 
-pip install youtube-transcript-api transformers torch
-tkinter usually comes with Python. If not, install it separately.
+        summary = ""
+        for chunk in chunks:
+            summarized_chunk = summarizer(chunk, max_length=150, min_length=30, do_sample=False)[0]['summary_text']
+            summary += summarized_chunk + " "
 
-How to Run
+        result_text.config(state=tk.NORMAL)
+        result_text.delete(1.0, tk.END)
+        result_text.insert(tk.INSERT, summary.strip())
+        result_text.config(state=tk.DISABLED)
+    except NoTranscriptFound:
+        result_text.config(state=tk.NORMAL)
+        result_text.delete(1.0, tk.END)
+        result_text.insert(tk.INSERT, "Could not retrieve a transcript for this video. Subtitles may be disabled.")
+        result_text.config(state=tk.DISABLED)
+    except Exception as exc:
+        result_text.config(state=tk.NORMAL)
+        result_text.delete(1.0, tk.END)
+        result_text.insert(tk.INSERT, "Error: " + str(exc))
+        result_text.config(state=tk.DISABLED)
 
-Clone the repository:
-git clone https://github.com/kVenkatesh28/YouTube-video-summarizer.git
-cd YouTube-video-summarizer
+# Attempt to initialize the summarizer
+try:
+    summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6", revision="a4f8f3e")
+except Exception as exc:
+    print(f"Error initializing the summarizer pipeline: {exc}")
+    summarizer = None
 
-Run the program:
+# Create the main window
+root = tk.Tk()
+root.title("YouTube Transcript Summarizer")
 
-python youtube_summarizer.py
-Enter the YouTube video URL in the input box and click Summarize.
-The summarized text will be displayed in the result area.
+# Apply some styling
+root.geometry("600x500")
+root.configure(bg="#f0f0f0")
 
-Notes
+tk.Label(root, text="YouTube URL:", bg="#f0f0f0", font=("Helvetica", 14)).pack(pady=10)
+url_entry = tk.Entry(root, width=50, font=("Helvetica", 12))
+url_entry.pack(pady=5)
 
-1)Only works for videos that have subtitles available.
-2)The quality of summaries depends on the transcript and the model.
+summarize_button = tk.Button(root, text="Summarize", command=get_summary, bg="#4CAF50", fg="white", font=("Helvetica", 12))
+summarize_button.pack(pady=10)
+
+result_text = scrolledtext.ScrolledText(root, wrap=tk.WORD, width=60, height=20, state=tk.DISABLED, font=("Helvetica", 12))
+result_text.pack(pady=10)
+
+# Start the application
+root.mainloop()
